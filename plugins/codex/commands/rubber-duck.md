@@ -36,7 +36,7 @@ Execution mode rules:
 - If the raw arguments include `--background`, do not ask. Run in a Claude background task.
 - Otherwise, estimate the size of the critique before asking:
   - Recommend waiting only when the articulation is clearly tiny, roughly a few lines describing one small, well-understood change.
-  - In every other case, including a long articulation, a `--prompt-file` handoff, a proactive mid-implementation critique, or unclear size, recommend background so the critique does not block this session.
+  - In every other case, including a long articulation, a proactive mid-implementation critique, or unclear size, recommend background so the critique does not block this session.
 - Then use `AskUserQuestion` exactly once with two options, putting the recommended option first and suffixing its label with `(Recommended)`:
   - `Wait for results`
   - `Run in background`

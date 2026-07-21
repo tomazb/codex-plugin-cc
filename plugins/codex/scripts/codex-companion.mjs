@@ -16,16 +16,14 @@ import {
     getSessionRuntimeStatus,
     importExternalAgentSession,
     interruptAppServerTurn,
-    parseStructuredOutput,
-    readOutputSchema,
-    runAppServerReview,
     runAppServerTurn
   } from "./lib/codex.mjs";
 import { resolveClaudeSessionPath } from "./lib/claude-session-transfer.mjs";
 import { readStdinIfPiped } from "./lib/fs.mjs";
-import { collectReviewContext, ensureGitRepository, resolveReviewTarget } from "./lib/git.mjs";
+import { resolveReviewTarget } from "./lib/git.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
-import { loadPromptTemplate, interpolateTemplate } from "./lib/prompts.mjs";
+import { executeRubberDuckRun } from "./lib/rubber-duck-run.mjs";
+import { executeReviewRun, validateNativeReviewRequest } from "./lib/review-run.mjs";
 import {
   generateJobId,
   getConfig,
@@ -54,9 +52,6 @@ import {
 } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import {
-  renderNativeReviewResult,
-  renderReviewResult,
-  renderRubberDuckResult,
   renderStoredJobResult,
   renderCancelReport,
   renderJobStatusReport,
@@ -66,8 +61,6 @@ import {
 } from "./lib/render.mjs";
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
-const RUBBER_DUCK_SCHEMA = path.join(ROOT_DIR, "schemas", "rubber-duck-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
@@ -241,56 +234,11 @@ async function handleSetup(argv) {
   outputResult(options.json ? finalReport : renderSetupReport(finalReport), options.json);
 }
 
-function buildAdversarialReviewPrompt(context, focusText) {
-  const template = loadPromptTemplate(ROOT_DIR, "adversarial-review");
-  return interpolateTemplate(template, {
-    REVIEW_KIND: "Adversarial Review",
-    TARGET_LABEL: context.target.label,
-    USER_FOCUS: focusText || "No extra focus provided.",
-    REVIEW_COLLECTION_GUIDANCE: context.collectionGuidance,
-    REVIEW_INPUT: context.content
-  });
-}
-
-function buildRubberDuckPrompt(input) {
-  const template = loadPromptTemplate(ROOT_DIR, "rubber-duck");
-  return interpolateTemplate(template, {
-    DUCK_INPUT: input
-  });
-}
-
 function ensureCodexAvailable(cwd) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
     throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
   }
-}
-
-function buildNativeReviewTarget(target) {
-  if (target.mode === "working-tree") {
-    return { type: "uncommittedChanges" };
-  }
-
-  if (target.mode === "branch") {
-    return { type: "baseBranch", branch: target.baseRef };
-  }
-
-  return null;
-}
-
-function validateNativeReviewRequest(target, focusText) {
-  if (focusText.trim()) {
-    throw new Error(
-      `\`/codex:review\` now maps directly to the built-in reviewer and does not support custom focus text. Retry with \`/codex:adversarial-review ${focusText.trim()}\` for focused review instructions.`
-    );
-  }
-
-  const nativeTarget = buildNativeReviewTarget(target);
-  if (!nativeTarget) {
-    throw new Error("This `/codex:review` target is not supported by the built-in reviewer. Retry with `/codex:adversarial-review` for custom targeting.");
-  }
-
-  return nativeTarget;
 }
 
 function renderStatusPayload(report, asJson) {
@@ -363,158 +311,6 @@ async function resolveLatestTrackedTaskThread(cwd, options = {}) {
   }
 
   return findLatestTaskThread(workspaceRoot);
-}
-
-async function executeReviewRun(request) {
-  ensureCodexAvailable(request.cwd);
-  ensureGitRepository(request.cwd);
-
-  const target = resolveReviewTarget(request.cwd, {
-    base: request.base,
-    scope: request.scope
-  });
-  const focusText = request.focusText?.trim() ?? "";
-  const reviewName = request.reviewName ?? "Review";
-  if (reviewName === "Review") {
-    const reviewTarget = validateNativeReviewRequest(target, focusText);
-    const result = await runAppServerReview(request.cwd, {
-      target: reviewTarget,
-      model: request.model,
-      onProgress: request.onProgress
-    });
-    const payload = {
-      review: reviewName,
-      target,
-      threadId: result.threadId,
-      sourceThreadId: result.sourceThreadId,
-      codex: {
-        status: result.status,
-        stderr: result.stderr,
-        stdout: result.reviewText,
-        reasoning: result.reasoningSummary
-      }
-    };
-    const rendered = renderNativeReviewResult(
-      {
-        status: result.status,
-        stdout: result.reviewText,
-        stderr: result.stderr
-      },
-      { reviewLabel: reviewName, targetLabel: target.label, reasoningSummary: result.reasoningSummary }
-    );
-
-    return {
-      exitStatus: result.status,
-      threadId: result.threadId,
-      turnId: result.turnId,
-      payload,
-      rendered,
-      summary: firstMeaningfulLine(result.reviewText, `${reviewName} completed.`),
-      jobTitle: `Codex ${reviewName}`,
-      jobClass: "review",
-      targetLabel: target.label
-    };
-  }
-
-  const context = collectReviewContext(request.cwd, target);
-  const prompt = buildAdversarialReviewPrompt(context, focusText);
-  const result = await runAppServerTurn(context.repoRoot, {
-    prompt,
-    model: request.model,
-    sandbox: "read-only",
-    outputSchema: readOutputSchema(REVIEW_SCHEMA),
-    onProgress: request.onProgress
-  });
-  const parsed = parseStructuredOutput(result.finalMessage, {
-    status: result.status,
-    failureMessage: result.error?.message ?? result.stderr
-  });
-  const payload = {
-    review: reviewName,
-    target,
-    threadId: result.threadId,
-    context: {
-      repoRoot: context.repoRoot,
-      branch: context.branch,
-      summary: context.summary
-    },
-    codex: {
-      status: result.status,
-      stderr: result.stderr,
-      stdout: result.finalMessage,
-      reasoning: result.reasoningSummary
-    },
-    result: parsed.parsed,
-    rawOutput: parsed.rawOutput,
-    parseError: parsed.parseError,
-    reasoningSummary: result.reasoningSummary
-  };
-
-  return {
-    exitStatus: result.status,
-    threadId: result.threadId,
-    turnId: result.turnId,
-    payload,
-    rendered: renderReviewResult(parsed, {
-      reviewLabel: reviewName,
-      targetLabel: context.target.label,
-      reasoningSummary: result.reasoningSummary
-    }),
-    summary: parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, `${reviewName} finished.`),
-    jobTitle: `Codex ${reviewName}`,
-    jobClass: "review",
-    targetLabel: context.target.label
-  };
-}
-
-
-async function executeRubberDuckRun(request) {
-  const workspaceRoot = resolveWorkspaceRoot(request.cwd);
-  ensureCodexAvailable(request.cwd);
-
-  const label = "Rubber Duck";
-  const prompt = buildRubberDuckPrompt(request.input);
-  const result = await runAppServerTurn(workspaceRoot, {
-    prompt,
-    model: request.model,
-    effort: request.effort,
-    sandbox: "read-only",
-    outputSchema: readOutputSchema(RUBBER_DUCK_SCHEMA),
-    onProgress: request.onProgress
-  });
-  const parsed = parseStructuredOutput(result.finalMessage, {
-    status: result.status,
-    failureMessage: result.error?.message ?? result.stderr
-  });
-  const rendered = renderRubberDuckResult(parsed, {
-    label,
-    reasoningSummary: result.reasoningSummary
-  });
-  const payload = {
-    rubberDuck: label,
-    threadId: result.threadId,
-    codex: {
-      status: result.status,
-      stderr: result.stderr,
-      stdout: result.finalMessage,
-      reasoning: result.reasoningSummary
-    },
-    result: parsed.parsed,
-    rawOutput: parsed.rawOutput,
-    parseError: parsed.parseError,
-    reasoningSummary: result.reasoningSummary
-  };
-
-  return {
-    exitStatus: result.status,
-    threadId: result.threadId,
-    turnId: result.turnId,
-    payload,
-    rendered,
-    summary: parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, `${label} finished.`),
-    jobTitle: `Codex ${label}`,
-    jobClass: "review"
-  };
 }
 
 async function executeTaskRun(request) {
@@ -616,14 +412,21 @@ function renderQueuedTaskLaunch(payload) {
   return `${payload.title} started in the background as ${payload.jobId}. Check /codex:status ${payload.jobId} for progress.\n`;
 }
 
+const KIND_LABELS = {
+  "adversarial-review": "adversarial-review",
+  "rubber-duck": "rubber-duck",
+  review: "review",
+  task: "rescue"
+};
+
+const JOB_CLASS_LABELS = {
+  review: "review",
+  critique: "rubber-duck",
+  task: "rescue"
+};
+
 function getJobKindLabel(kind, jobClass) {
-  if (kind === "adversarial-review") {
-    return "adversarial-review";
-  }
-  if (kind === "rubber-duck") {
-    return "rubber-duck";
-  }
-  return jobClass === "review" ? "review" : "rescue";
+  return KIND_LABELS[kind] ?? JOB_CLASS_LABELS[jobClass] ?? "job";
 }
 
 function createCompanionJob({ prefix, kind, title, workspaceRoot, jobClass, summary, write = false }) {
@@ -844,7 +647,7 @@ async function handleRubberDuck(argv) {
     kind: "rubber-duck",
     title: "Codex Rubber Duck",
     workspaceRoot,
-    jobClass: "review",
+    jobClass: "critique",
     summary: shorten(input)
   });
   await runForegroundCommand(

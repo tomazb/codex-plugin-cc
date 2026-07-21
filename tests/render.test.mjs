@@ -197,3 +197,51 @@ test("renderRubberDuckResult flags an issues-found assessment with no findings",
   assert.match(output, /Inconclusive: no findings were returned despite an `issues-found` assessment\./);
   assert.doesNotMatch(output, /No blocking issues, non-blocking issues, or suggestions\./);
 });
+
+test("renderRubberDuckResult rejects unknown finding severities instead of demoting them", () => {
+  for (const severity of ["high", "critical", "BLOCKING"]) {
+    const output = renderRubberDuckResult(
+      {
+        parsed: {
+          assessment: "issues-found",
+          summary: "Has a serious finding with a review-style severity.",
+          findings: [
+            {
+              severity,
+              title: "Silent severity demotion risk",
+              body: "Unknown severities must not land in Suggestions.",
+              recommendation: "Fail the soft shape check."
+            }
+          ]
+        },
+        rawOutput: "{}",
+        parseError: null
+      },
+      { label: "Rubber Duck" }
+    );
+
+    assert.match(output, /Codex returned JSON with an unexpected rubber duck shape\./);
+    assert.match(output, /Validation error:.*severity/i);
+    assert.doesNotMatch(output, /Suggestions:/);
+    assert.doesNotMatch(output, /Silent severity demotion risk/);
+  }
+});
+
+test("renderRubberDuckResult rejects invalid assessment values", () => {
+  const output = renderRubberDuckResult(
+    {
+      parsed: {
+        assessment: "approve",
+        summary: "Looks fine.",
+        findings: []
+      },
+      rawOutput: "{}",
+      parseError: null
+    },
+    { label: "Rubber Duck" }
+  );
+
+  assert.match(output, /Codex returned JSON with an unexpected rubber duck shape\./);
+  assert.match(output, /Validation error:.*assessment/i);
+  assert.doesNotMatch(output, /No blocking issues, non-blocking issues, or suggestions\./);
+});

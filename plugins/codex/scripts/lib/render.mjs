@@ -174,6 +174,41 @@ function appendReasoningSection(lines, reasoningSummary) {
   }
 }
 
+function appendRawOutputSection(lines, rawOutput) {
+  if (!rawOutput) {
+    return;
+  }
+  lines.push("", "Raw final message:", "", "```text", rawOutput, "```");
+}
+
+function renderStructuredParseFailure({ title, parseError, rawOutput, reasoningSummary, prefaceLines = [] }) {
+  const lines = [`# Codex ${title}`, "", ...prefaceLines, "Codex did not return valid structured JSON.", "", `- Parse error: ${parseError}`];
+  appendRawOutputSection(lines, rawOutput);
+  appendReasoningSection(lines, reasoningSummary);
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
+function renderStructuredValidationFailure({
+  title,
+  shapeLabel,
+  validationError,
+  rawOutput,
+  reasoningSummary,
+  prefaceLines = []
+}) {
+  const lines = [
+    `# Codex ${title}`,
+    "",
+    ...prefaceLines,
+    `Codex returned JSON with an unexpected ${shapeLabel} shape.`,
+    "",
+    `- Validation error: ${validationError}`
+  ];
+  appendRawOutputSection(lines, rawOutput);
+  appendReasoningSection(lines, reasoningSummary);
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
 export function renderSetupReport(report) {
   const lines = [
     "# Codex Setup",
@@ -210,41 +245,24 @@ export function renderSetupReport(report) {
 
 export function renderReviewResult(parsedResult, meta) {
   if (!parsedResult.parsed) {
-    const lines = [
-      `# Codex ${meta.reviewLabel}`,
-      "",
-      "Codex did not return valid structured JSON.",
-      "",
-      `- Parse error: ${parsedResult.parseError}`
-    ];
-
-    if (parsedResult.rawOutput) {
-      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
-    }
-
-    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
-
-    return `${lines.join("\n").trimEnd()}\n`;
+    return renderStructuredParseFailure({
+      title: meta.reviewLabel,
+      parseError: parsedResult.parseError,
+      rawOutput: parsedResult.rawOutput,
+      reasoningSummary: meta.reasoningSummary ?? parsedResult.reasoningSummary
+    });
   }
 
   const validationError = validateReviewResultShape(parsedResult.parsed);
   if (validationError) {
-    const lines = [
-      `# Codex ${meta.reviewLabel}`,
-      "",
-      `Target: ${meta.targetLabel}`,
-      "Codex returned JSON with an unexpected review shape.",
-      "",
-      `- Validation error: ${validationError}`
-    ];
-
-    if (parsedResult.rawOutput) {
-      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
-    }
-
-    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
-
-    return `${lines.join("\n").trimEnd()}\n`;
+    return renderStructuredValidationFailure({
+      title: meta.reviewLabel,
+      shapeLabel: "review",
+      validationError,
+      rawOutput: parsedResult.rawOutput,
+      reasoningSummary: meta.reasoningSummary ?? parsedResult.reasoningSummary,
+      prefaceLines: [`Target: ${meta.targetLabel}`]
+    });
   }
 
   const data = normalizeReviewResultData(parsedResult.parsed);
@@ -290,6 +308,8 @@ const RUBBER_DUCK_SEVERITIES = [
   { key: "non-blocking", label: "Non-blocking issues" },
   { key: "suggestion", label: "Suggestions" }
 ];
+const RUBBER_DUCK_SEVERITY_KEYS = new Set(RUBBER_DUCK_SEVERITIES.map((entry) => entry.key));
+const RUBBER_DUCK_ASSESSMENTS = new Set(["no-issues", "issues-found"]);
 
 function validateRubberDuckResultShape(data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
@@ -298,18 +318,32 @@ function validateRubberDuckResultShape(data) {
   if (typeof data.assessment !== "string" || !data.assessment.trim()) {
     return "Missing string `assessment`.";
   }
+  if (!RUBBER_DUCK_ASSESSMENTS.has(data.assessment.trim())) {
+    return "Invalid `assessment` (expected `no-issues` or `issues-found`).";
+  }
   if (typeof data.summary !== "string" || !data.summary.trim()) {
     return "Missing string `summary`.";
   }
   if (!Array.isArray(data.findings)) {
     return "Missing array `findings`.";
   }
+  for (const [index, finding] of data.findings.entries()) {
+    if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+      return `Finding ${index + 1} must be an object.`;
+    }
+    if (typeof finding.severity !== "string" || !finding.severity.trim()) {
+      return `Finding ${index + 1} is missing string \`severity\`.`;
+    }
+    if (!RUBBER_DUCK_SEVERITY_KEYS.has(finding.severity.trim())) {
+      return `Finding ${index + 1} has invalid \`severity\` (expected blocking, non-blocking, or suggestion).`;
+    }
+  }
   return null;
 }
 
 function normalizeRubberDuckFinding(finding, index) {
   const source = finding && typeof finding === "object" && !Array.isArray(finding) ? finding : {};
-  const severity = typeof source.severity === "string" && source.severity.trim() ? source.severity.trim() : "suggestion";
+  const severity = source.severity.trim();
   const lineStart = Number.isInteger(source.line_start) && source.line_start > 0 ? source.line_start : null;
   const lineEnd =
     Number.isInteger(source.line_end) && source.line_end > 0 && (!lineStart || source.line_end >= lineStart)
@@ -317,7 +351,7 @@ function normalizeRubberDuckFinding(finding, index) {
       : lineStart;
 
   return {
-    severity: RUBBER_DUCK_SEVERITIES.some((entry) => entry.key === severity) ? severity : "suggestion",
+    severity,
     title: typeof source.title === "string" && source.title.trim() ? source.title.trim() : `Finding ${index + 1}`,
     body: typeof source.body === "string" && source.body.trim() ? source.body.trim() : "No details provided.",
     recommendation: typeof source.recommendation === "string" ? source.recommendation.trim() : "",
@@ -331,40 +365,23 @@ export function renderRubberDuckResult(parsedResult, meta = {}) {
   const label = meta.label ?? "Rubber Duck";
 
   if (!parsedResult.parsed) {
-    const lines = [
-      `# Codex ${label}`,
-      "",
-      "Codex did not return valid structured JSON.",
-      "",
-      `- Parse error: ${parsedResult.parseError}`
-    ];
-
-    if (parsedResult.rawOutput) {
-      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
-    }
-
-    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
-
-    return `${lines.join("\n").trimEnd()}\n`;
+    return renderStructuredParseFailure({
+      title: label,
+      parseError: parsedResult.parseError,
+      rawOutput: parsedResult.rawOutput,
+      reasoningSummary: meta.reasoningSummary ?? parsedResult.reasoningSummary
+    });
   }
 
   const validationError = validateRubberDuckResultShape(parsedResult.parsed);
   if (validationError) {
-    const lines = [
-      `# Codex ${label}`,
-      "",
-      "Codex returned JSON with an unexpected rubber duck shape.",
-      "",
-      `- Validation error: ${validationError}`
-    ];
-
-    if (parsedResult.rawOutput) {
-      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
-    }
-
-    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
-
-    return `${lines.join("\n").trimEnd()}\n`;
+    return renderStructuredValidationFailure({
+      title: label,
+      shapeLabel: "rubber duck",
+      validationError,
+      rawOutput: parsedResult.rawOutput,
+      reasoningSummary: meta.reasoningSummary ?? parsedResult.reasoningSummary
+    });
   }
 
   const data = parsedResult.parsed;

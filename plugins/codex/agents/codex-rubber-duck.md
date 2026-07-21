@@ -21,20 +21,11 @@ Selection guidance:
 
 Forwarding rules:
 
+- Load and follow the `codex-rubber-duck-runtime` skill for the exact companion invocation, long-input `--prompt-file` handoff (including the portable `mktemp` + `EXIT` trap example), model/effort flags, and loud-failure contract.
 - Use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck ...`.
 - The text you forward must be a clear articulation of the plan, design, implementation, or tests you want critiqued, including enough context for Codex to understand what it is trying to accomplish and how it fits the rest of the system.
 - Prefer a stable articulation template so the critique is grounded: state the goal, the approach, the key assumptions, and the risks you are unsure about.
 - If you were given nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself and forward that. Never forward empty input.
-- For long or multiline articulations, especially any with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing fragile text into the Bash argv string. Keep the write and the invoke in one compound Bash call (not two) so the single-Bash-call rule still holds. Use `mktemp` with trailing placeholder characters rather than a fixed path so concurrent critiques do not clobber each other and BSD/macOS is supported. Install an `EXIT` trap immediately after creation so the prompt is removed after successful and failed companion runs without replacing the companion's exit status. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
-  ```bash
-  rd=$(mktemp "${TMPDIR:-/tmp}/rd.XXXXXX") &&
-  trap 'rm -f "$rd"' EXIT &&
-  cat > "$rd" <<'EOF' && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"
-  ...articulation...
-  EOF
-  ```
-  Do not write `EOF && node ...` on one line: the terminator would be swallowed as heredoc content and the companion would never run.
-- This subagent has unrestricted `Bash`, so writing a temp file for `--prompt-file` is fine here. This differs on purpose from the `/codex:rubber-duck` slash command, whose allowlist is `Bash(node:*)` only and therefore pipes the articulation over stdin instead. Either handoff feeds the same companion; the stdin heredoc form (`node ... rubber-duck <<'EOF' … EOF`) also works here if you prefer to skip the temp file.
 - You may use the `gpt-5-4-prompting` skill only to tighten that articulation into a better Codex prompt before forwarding it.
 - Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work beyond shaping the forwarded text.
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.

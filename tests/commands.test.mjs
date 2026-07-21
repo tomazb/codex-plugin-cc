@@ -187,50 +187,35 @@ test("rubber duck command and agent forward to the critique runtime and stay cri
 });
 
 test("rubber duck prompt-file examples use BSD-compatible mktemp templates", () => {
-  const sources = [
-    ["agent", read("agents/codex-rubber-duck.md")],
-    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
-  ];
+  const skill = read("skills/codex-rubber-duck-runtime/SKILL.md");
+  const agent = read("agents/codex-rubber-duck.md");
 
-  for (const [label, source] of sources) {
-    assert.match(source, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/, label);
-    assert.doesNotMatch(source, /rd-XXXXXX\.md/, label);
-  }
+  assert.match(skill, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/);
+  assert.doesNotMatch(skill, /rd-XXXXXX\.md/);
+  assert.doesNotMatch(agent, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/);
+  assert.match(agent, /codex-rubber-duck-runtime/);
+  assert.match(agent, /`--prompt-file` handoff/);
 });
 
 test("rubber duck prompt-file examples remove prompts after successful invocations", (t) => {
-  const sources = [
-    ["agent", read("agents/codex-rubber-duck.md")],
-    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
-  ];
-
-  for (const [label, source] of sources) {
-    const result = runRubberDuckPromptFileExample(source, 0);
-    t.after(result.cleanup);
-    assert.equal(result.status, 0, `${label}: ${result.stderr}`);
-    assert.equal(result.invocationCount, 1, label);
-    assert.match(result.prompt, /\.\.\.articulation\.\.\./, label);
-    assert.equal(fs.existsSync(result.promptPath), false, label);
-  }
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 0);
+  t.after(result.cleanup);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.invocationCount, 1);
+  assert.match(result.prompt, /\.\.\.articulation\.\.\./);
+  assert.equal(fs.existsSync(result.promptPath), false);
 });
 
 test("rubber duck prompt-file examples clean up while preserving companion failures", (t) => {
-  const sources = [
-    ["agent", read("agents/codex-rubber-duck.md")],
-    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
-  ];
-
-  for (const [label, source] of sources) {
-    const result = runRubberDuckPromptFileExample(source, 23);
-    t.after(result.cleanup);
-    assert.equal(result.status, 23, `${label}: ${result.stderr}`);
-    assert.equal(result.invocationCount, 1, label);
-    assert.equal(fs.existsSync(result.promptPath), false, label);
-  }
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 23);
+  t.after(result.cleanup);
+  assert.equal(result.status, 23, result.stderr);
+  assert.equal(result.invocationCount, 1);
+  assert.equal(fs.existsSync(result.promptPath), false);
 });
 
 test("rubber duck prompt-file test runner can remove its sandbox", () => {
-  const result = runRubberDuckPromptFileExample(read("agents/codex-rubber-duck.md"), 0);
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 0);
   const tempDir = path.dirname(result.promptPath);
 
   try {
