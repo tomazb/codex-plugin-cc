@@ -232,6 +232,42 @@ function structuredReviewPayload(prompt) {
   });
 }
 
+function rubberDuckPayload(prompt) {
+  if (BEHAVIOR === "invalid-json") {
+    return "not valid json";
+  }
+
+  if (BEHAVIOR === "rubber-duck-clean" || prompt.includes("RUBBER_DUCK_CLEAN")) {
+    return JSON.stringify({
+      assessment: "no-issues",
+      summary: "The plan holds up; no blocking issues surfaced.",
+      findings: []
+    });
+  }
+
+  return JSON.stringify({
+    assessment: "issues-found",
+    summary: "The plan misses an empty-state failure mode.",
+    findings: [
+      {
+        severity: "blocking",
+        title: "Unhandled empty collection",
+        body: "The proposed indexing assumes the collection is never empty.",
+        recommendation: "Guard against empty input before indexing.",
+        file: "src/app.js",
+        line_start: 4,
+        line_end: 6
+      },
+      {
+        severity: "suggestion",
+        title: "Add a regression test",
+        body: "No test covers the empty-state path.",
+        recommendation: "Add a test for the empty collection case."
+      }
+    ]
+  });
+}
+
 function taskPayload(prompt, resume) {
   if (prompt.includes("<task>") && prompt.includes("Only review the work from the previous Claude turn.")) {
     if (BEHAVIOR === "adversarial-clean") {
@@ -454,9 +490,15 @@ rl.on("line", (line) => {
 	        saveState(state);
 	        send({ id: message.id, result: { turn: buildTurn(turnId) } });
 
-        const payload = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
+        const outputSchemaProps =
+          message.params.outputSchema && message.params.outputSchema.properties
+            ? message.params.outputSchema.properties
+            : null;
+        const payload = outputSchemaProps && outputSchemaProps.verdict
           ? structuredReviewPayload(prompt)
-          : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
+          : outputSchemaProps && outputSchemaProps.assessment
+            ? rubberDuckPayload(prompt)
+            : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
 
         if (
           BEHAVIOR === "with-subagent" ||

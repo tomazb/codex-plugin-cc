@@ -70,6 +70,43 @@ test("adversarial review command uses AskUserQuestion and background Bash while 
   assert.match(source, /can still take extra focus text after the flags/i);
 });
 
+test("rubber duck command and agent forward to the critique runtime and stay critique-only", () => {
+  const command = read("commands/rubber-duck.md");
+  const agent = read("agents/codex-rubber-duck.md");
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  assert.match(command, /disable-model-invocation:\s*true/);
+  assert.match(command, /AskUserQuestion/);
+  assert.match(command, /critique-only/i);
+  assert.match(command, /return Codex's output verbatim to the user/i);
+  assert.match(command, /codex-companion\.mjs" rubber-duck "\$ARGUMENTS"/);
+  assert.match(command, /```bash/);
+  assert.match(command, /```typescript/);
+  assert.match(command, /run_in_background:\s*true/);
+  assert.match(command, /description:\s*"Codex rubber duck"/);
+  assert.match(command, /Do not call `BashOutput`/);
+  assert.match(command, /Do not fix any issues mentioned in the critique output/i);
+  assert.match(command, /\(Recommended\)/);
+  assert.match(command, /reviews proposed changes, it does not make file changes itself/i);
+
+  assert.match(agent, /name: codex-rubber-duck/);
+  assert.match(agent, /thin forwarding wrapper/i);
+  assert.match(agent, /constructive critic/i);
+  assert.match(agent, /different model than the one driving the main session/i);
+  assert.match(agent, /blocking, non-blocking, and suggestions/i);
+  assert.match(agent, /Use exactly one `Bash` call/i);
+  assert.match(agent, /codex-companion\.mjs" rubber-duck/);
+  assert.match(agent, /after planning a non-trivial change but before implementing it/i);
+  assert.match(agent, /Do not call `review`, `adversarial-review`, `task`, `status`, `result`, or `cancel`/i);
+  assert.match(agent, /Never add `--write`/i);
+  assert.match(agent, /Return the stdout of the `codex-companion` command exactly as-is/i);
+  assert.match(agent, /If the Bash call fails or Codex cannot be invoked, return nothing/i);
+  assert.match(agent, /gpt-5-4-prompting/);
+
+  assert.match(readme, /### `\/codex:rubber-duck`/);
+  assert.match(readme, /`codex:codex-rubber-duck` subagent/i);
+});
+
 test("continue is not exposed as a user-facing command", () => {
   const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
   assert.deepEqual(commandFiles, [
@@ -78,6 +115,7 @@ test("continue is not exposed as a user-facing command", () => {
     "rescue.md",
     "result.md",
     "review.md",
+    "rubber-duck.md",
     "setup.md",
     "status.md",
     "transfer.md"

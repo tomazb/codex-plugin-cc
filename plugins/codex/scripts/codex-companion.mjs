@@ -56,6 +56,7 @@ import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import {
   renderNativeReviewResult,
   renderReviewResult,
+  renderRubberDuckResult,
   renderStoredJobResult,
   renderCancelReport,
   renderJobStatusReport,
@@ -66,6 +67,7 @@ import {
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
+const RUBBER_DUCK_SCHEMA = path.join(ROOT_DIR, "schemas", "rubber-duck-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
@@ -79,6 +81,7 @@ function printUsage() {
       "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
+      "  node scripts/codex-companion.mjs rubber-duck [--wait|--background] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [plan/design/code/tests to critique]",
       "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
@@ -246,6 +249,13 @@ function buildAdversarialReviewPrompt(context, focusText) {
     USER_FOCUS: focusText || "No extra focus provided.",
     REVIEW_COLLECTION_GUIDANCE: context.collectionGuidance,
     REVIEW_INPUT: context.content
+  });
+}
+
+function buildRubberDuckPrompt(input) {
+  const template = loadPromptTemplate(ROOT_DIR, "rubber-duck");
+  return interpolateTemplate(template, {
+    DUCK_INPUT: input
   });
 }
 
@@ -458,6 +468,55 @@ async function executeReviewRun(request) {
 }
 
 
+async function executeRubberDuckRun(request) {
+  const workspaceRoot = resolveWorkspaceRoot(request.cwd);
+  ensureCodexAvailable(request.cwd);
+
+  const label = "Rubber Duck";
+  const prompt = buildRubberDuckPrompt(request.input);
+  const result = await runAppServerTurn(workspaceRoot, {
+    prompt,
+    model: request.model,
+    effort: request.effort,
+    sandbox: "read-only",
+    outputSchema: readOutputSchema(RUBBER_DUCK_SCHEMA),
+    onProgress: request.onProgress
+  });
+  const parsed = parseStructuredOutput(result.finalMessage, {
+    status: result.status,
+    failureMessage: result.error?.message ?? result.stderr
+  });
+  const rendered = renderRubberDuckResult(parsed, {
+    label,
+    reasoningSummary: result.reasoningSummary
+  });
+  const payload = {
+    rubberDuck: label,
+    threadId: result.threadId,
+    codex: {
+      status: result.status,
+      stderr: result.stderr,
+      stdout: result.finalMessage,
+      reasoning: result.reasoningSummary
+    },
+    result: parsed.parsed,
+    rawOutput: parsed.rawOutput,
+    parseError: parsed.parseError,
+    reasoningSummary: result.reasoningSummary
+  };
+
+  return {
+    exitStatus: result.status,
+    threadId: result.threadId,
+    turnId: result.turnId,
+    payload,
+    rendered,
+    summary: parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, `${label} finished.`),
+    jobTitle: `Codex ${label}`,
+    jobClass: "review"
+  };
+}
+
 async function executeTaskRun(request) {
   const workspaceRoot = resolveWorkspaceRoot(request.cwd);
   ensureCodexAvailable(request.cwd);
@@ -560,6 +619,9 @@ function renderQueuedTaskLaunch(payload) {
 function getJobKindLabel(kind, jobClass) {
   if (kind === "adversarial-review") {
     return "adversarial-review";
+  }
+  if (kind === "rubber-duck") {
+    return "rubber-duck";
   }
   return jobClass === "review" ? "review" : "rescue";
 }
@@ -757,6 +819,46 @@ async function handleReview(argv) {
     reviewName: "Review",
     validateRequest: validateNativeReviewRequest
   });
+}
+
+async function handleRubberDuck(argv) {
+  const { options, positionals } = parseCommandInput(argv, {
+    valueOptions: ["model", "effort", "cwd", "prompt-file"],
+    booleanOptions: ["json", "background", "wait"],
+    aliasMap: {
+      m: "model"
+    }
+  });
+
+  const cwd = resolveCommandCwd(options);
+  const workspaceRoot = resolveCommandWorkspace(options);
+  const model = normalizeRequestedModel(options.model);
+  const effort = normalizeReasoningEffort(options.effort);
+  const input = readTaskPrompt(cwd, options, positionals);
+  if (!input || !input.trim()) {
+    throw new Error("Provide the plan, design, code, or tests you want the rubber duck to critique.");
+  }
+
+  const job = createCompanionJob({
+    prefix: "rubber-duck",
+    kind: "rubber-duck",
+    title: "Codex Rubber Duck",
+    workspaceRoot,
+    jobClass: "review",
+    summary: shorten(input)
+  });
+  await runForegroundCommand(
+    job,
+    (progress) =>
+      executeRubberDuckRun({
+        cwd,
+        model,
+        effort,
+        input,
+        onProgress: progress
+      }),
+    { json: options.json }
+  );
 }
 
 async function handleTask(argv) {
@@ -1039,6 +1141,9 @@ async function main() {
       await handleReviewCommand(argv, {
         reviewName: "Adversarial Review"
       });
+      break;
+    case "rubber-duck":
+      await handleRubberDuck(argv);
       break;
     case "task":
       await handleTask(argv);

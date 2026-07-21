@@ -434,6 +434,60 @@ test("adversarial review asks Codex to inspect larger diffs itself", () => {
   assert.doesNotMatch(state.lastTurnStart.prompt, /PROMPT_SELF_COLLECT_[ABC]/);
 });
 
+test("rubber duck critique returns structured feedback grouped by severity", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "rubber-duck", "critique my plan to index the first item"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /# Codex Rubber Duck/);
+  assert.match(result.stdout, /Assessment: issues-found/);
+  assert.match(result.stdout, /Blocking issues:/);
+  assert.match(result.stdout, /Unhandled empty collection/);
+  assert.match(result.stdout, /Suggestions:/);
+
+  const state = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.match(state.lastTurnStart.prompt, /rubber duck/i);
+  assert.match(state.lastTurnStart.prompt, /critique my plan to index the first item/);
+});
+
+test("rubber duck critique reports no issues explicitly when the plan is clean", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir, "rubber-duck-clean");
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "rubber-duck", "critique my clean plan"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Assessment: no-issues/);
+  assert.match(result.stdout, /No blocking issues, non-blocking issues, or suggestions\./);
+});
+
+test("rubber duck critique requires text to critique", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "rubber-duck"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Provide the plan, design, code, or tests you want the rubber duck to critique/i);
+});
+
 test("review includes reasoning output when the app server returns it", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

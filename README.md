@@ -11,6 +11,7 @@ they already have.
 
 - `/codex:review` for a normal read-only Codex review
 - `/codex:adversarial-review` for a steerable challenge review
+- `/codex:rubber-duck` for a constructive second opinion on a plan, design, code, or tests
 - `/codex:rescue`, `/codex:transfer`, `/codex:status`, `/codex:result`, and `/codex:cancel` to delegate work, hand off sessions, and manage background jobs
 
 ## Requirements
@@ -62,7 +63,7 @@ If Codex is installed but not logged in yet, run:
 After install, you should see:
 
 - the slash commands listed below
-- the `codex:codex-rescue` subagent in `/agents`
+- the `codex:codex-rescue` and `codex:codex-rubber-duck` subagents in `/agents`
 
 One simple first run is:
 
@@ -122,6 +123,33 @@ Examples:
 ```
 
 This command is read-only. It does not fix code.
+
+### `/codex:rubber-duck`
+
+Runs a **rubber duck** critique: a constructive second opinion on a plan, design, implementation, or set of tests, produced by a different model than the one driving your Claude Code session.
+
+This is the same idea GitHub Copilot's [rubber duck agent](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/rubber-duck) uses. Before committing to a non-trivial change, Claude can articulate its current thinking and have an independent reviewer scrutinize it. Because the critic runs on Codex (a different model family), it is less likely to share the same blind spots as the model that produced the work.
+
+The rubber duck reads the work in context, identifies issues that genuinely matter, and returns concrete, actionable feedback categorized by severity:
+
+- **Blocking issues** — must be fixed for the work to succeed.
+- **Non-blocking issues** — should be fixed to improve quality.
+- **Suggestions** — lower-priority improvements that still have real impact.
+
+If it finds nothing substantive, it says so explicitly. It does not comment on style, formatting, or naming, and it only reviews proposed changes — it never edits files itself.
+
+It supports `--wait`, `--background`, `--model`, and `--effort`. Pass the plan, design, code, or tests you want critiqued as text after the flags.
+
+Examples:
+
+```bash
+/codex:rubber-duck review my plan to add optimistic locking before I implement it
+/codex:rubber-duck --background does this cache invalidation design have race conditions?
+```
+
+You can also just ask Claude to get a second opinion, for example "rubber duck this plan" or "get a critique of the changes so far". Claude can route that to the `codex:codex-rubber-duck` subagent, which forwards your articulated thinking to Codex and returns the critique. The main session decides what to do with the feedback.
+
+This command is critique-only. It does not fix code.
 
 ### `/codex:rescue`
 

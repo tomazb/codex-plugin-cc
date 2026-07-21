@@ -285,6 +285,118 @@ export function renderReviewResult(parsedResult, meta) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+const RUBBER_DUCK_SEVERITIES = [
+  { key: "blocking", label: "Blocking issues" },
+  { key: "non-blocking", label: "Non-blocking issues" },
+  { key: "suggestion", label: "Suggestions" }
+];
+
+function validateRubberDuckResultShape(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return "Expected a top-level JSON object.";
+  }
+  if (typeof data.assessment !== "string" || !data.assessment.trim()) {
+    return "Missing string `assessment`.";
+  }
+  if (typeof data.summary !== "string" || !data.summary.trim()) {
+    return "Missing string `summary`.";
+  }
+  if (!Array.isArray(data.findings)) {
+    return "Missing array `findings`.";
+  }
+  return null;
+}
+
+function normalizeRubberDuckFinding(finding, index) {
+  const source = finding && typeof finding === "object" && !Array.isArray(finding) ? finding : {};
+  const severity = typeof source.severity === "string" && source.severity.trim() ? source.severity.trim() : "suggestion";
+  const lineStart = Number.isInteger(source.line_start) && source.line_start > 0 ? source.line_start : null;
+  const lineEnd =
+    Number.isInteger(source.line_end) && source.line_end > 0 && (!lineStart || source.line_end >= lineStart)
+      ? source.line_end
+      : lineStart;
+
+  return {
+    severity: RUBBER_DUCK_SEVERITIES.some((entry) => entry.key === severity) ? severity : "suggestion",
+    title: typeof source.title === "string" && source.title.trim() ? source.title.trim() : `Finding ${index + 1}`,
+    body: typeof source.body === "string" && source.body.trim() ? source.body.trim() : "No details provided.",
+    recommendation: typeof source.recommendation === "string" ? source.recommendation.trim() : "",
+    file: typeof source.file === "string" && source.file.trim() ? source.file.trim() : "",
+    line_start: lineStart,
+    line_end: lineEnd
+  };
+}
+
+export function renderRubberDuckResult(parsedResult, meta = {}) {
+  const label = meta.label ?? "Rubber Duck";
+
+  if (!parsedResult.parsed) {
+    const lines = [
+      `# Codex ${label}`,
+      "",
+      "Codex did not return valid structured JSON.",
+      "",
+      `- Parse error: ${parsedResult.parseError}`
+    ];
+
+    if (parsedResult.rawOutput) {
+      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
+    }
+
+    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
+
+    return `${lines.join("\n").trimEnd()}\n`;
+  }
+
+  const validationError = validateRubberDuckResultShape(parsedResult.parsed);
+  if (validationError) {
+    const lines = [
+      `# Codex ${label}`,
+      "",
+      "Codex returned JSON with an unexpected rubber duck shape.",
+      "",
+      `- Validation error: ${validationError}`
+    ];
+
+    if (parsedResult.rawOutput) {
+      lines.push("", "Raw final message:", "", "```text", parsedResult.rawOutput, "```");
+    }
+
+    appendReasoningSection(lines, meta.reasoningSummary ?? parsedResult.reasoningSummary);
+
+    return `${lines.join("\n").trimEnd()}\n`;
+  }
+
+  const data = parsedResult.parsed;
+  const findings = data.findings.map((finding, index) => normalizeRubberDuckFinding(finding, index));
+  const lines = [`# Codex ${label}`, "", `Assessment: ${data.assessment.trim()}`, "", data.summary.trim(), ""];
+
+  if (findings.length === 0) {
+    lines.push("No blocking issues, non-blocking issues, or suggestions.");
+  } else {
+    for (const { key, label: sectionLabel } of RUBBER_DUCK_SEVERITIES) {
+      const bucket = findings.filter((finding) => finding.severity === key);
+      if (bucket.length === 0) {
+        continue;
+      }
+      lines.push(`${sectionLabel}:`);
+      for (const finding of bucket) {
+        const location = finding.file ? ` (${finding.file}${formatLineRange(finding)})` : "";
+        lines.push(`- ${finding.title}${location}`);
+        lines.push(`  ${finding.body}`);
+        if (finding.recommendation) {
+          lines.push(`  Recommendation: ${finding.recommendation}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+
+  appendReasoningSection(lines, meta.reasoningSummary);
+
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
 export function renderNativeReviewResult(result, meta) {
   const stdout = result.stdout.trim();
   const stderr = result.stderr.trim();
