@@ -26,8 +26,8 @@ Input contract:
 - The forwarded text must be a stable articulation of the work to critique. Prefer a template covering goal, approach, assumptions, and risks so Codex has concrete context.
 - For long or multiline articulations, especially ones with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing it into a fragile Bash argv string.
 - Keep the write and the invocation in one compound Bash command so the "exactly one Bash call" rule still holds, for example:
-  `cat > "$TMPDIR/rd.md" <<'EOF'` … articulation … `EOF` `&& node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$TMPDIR/rd.md"`
-  Do not split this into a separate write call and a separate invoke call.
+  `rd=$(mktemp "${TMPDIR:-/tmp}/rd-XXXXXX.md")` `&& cat > "$rd" <<'EOF'` … articulation … `EOF` `&& node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"`
+  Do not split this into a separate write call and a separate invoke call. Use `mktemp` (or `${TMPDIR:-/tmp}/rd-$$.md`) rather than a fixed path so concurrent critiques do not clobber each other and an unset `TMPDIR` still resolves.
 - If there is nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself rather than forwarding empty input.
 
 Command selection:
@@ -37,8 +37,8 @@ Command selection:
 - If the forwarded request includes `--effort`, pass it through to `rubber-duck`. Accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
 
 Execution mode:
-- Prefer a Claude background task for proactive, mid-implementation, or large articulations so the critique does not block the main session.
-- Reserve foreground (`--wait`) for tiny, well-bounded asks.
+- Always run the `rubber-duck` companion call in the foreground so it runs to completion and returns the critique body. The subagent has no status handoff, so a background start that returns before the critique is ready reads as silence / a clean "no issues" critique — the exact ambiguity loud-failure exists to kill.
+- If the critique should not block the main session, that is the parent's decision to background the whole subagent as a Claude Task. The companion call inside the subagent still runs foreground and returns the real critique body or a loud failure.
 
 Safety rules:
 - The rubber duck is read-only. Never add `--write`; it must not edit files.

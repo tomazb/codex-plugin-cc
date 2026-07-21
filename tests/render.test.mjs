@@ -193,5 +193,7 @@ test("renderRubberDuckResult flags an issues-found assessment with no findings",
 
   assert.match(output, /Assessment: issues-found/);
   assert.match(output, /Note: Codex reported `issues-found` but returned no findings/);
-  assert.match(output, /No blocking issues, non-blocking issues, or suggestions\./);
+  assert.match(output, /inconclusive, not clean/);
+  assert.match(output, /Inconclusive: no findings were returned despite an `issues-found` assessment\./);
+  assert.doesNotMatch(output, /No blocking issues, non-blocking issues, or suggestions\./);
 });

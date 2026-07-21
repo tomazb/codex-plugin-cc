@@ -370,6 +370,7 @@ export function renderRubberDuckResult(parsedResult, meta = {}) {
   const data = parsedResult.parsed;
   const findings = data.findings.map((finding, index) => normalizeRubberDuckFinding(finding, index));
   const assessment = data.assessment.trim();
+  const inconclusive = assessment === "issues-found" && findings.length === 0;
   const lines = [`# Codex ${label}`, "", `Assessment: ${assessment}`, "", data.summary.trim(), ""];
 
   if (assessment === "no-issues" && findings.length > 0) {
@@ -377,14 +378,16 @@ export function renderRubberDuckResult(parsedResult, meta = {}) {
       "Note: Codex reported `no-issues` but still returned findings below. Treat the findings as the source of truth.",
       ""
     );
-  } else if (assessment === "issues-found" && findings.length === 0) {
+  } else if (inconclusive) {
     lines.push(
-      "Note: Codex reported `issues-found` but returned no findings. Treat this as a clean critique with no actionable items.",
+      "Note: Codex reported `issues-found` but returned no findings. Treat this critique as inconclusive, not clean: the issues could not be surfaced. Re-run the rubber duck rather than assuming a clean pass.",
       ""
     );
   }
 
-  if (findings.length === 0) {
+  if (inconclusive) {
+    lines.push("Inconclusive: no findings were returned despite an `issues-found` assessment.");
+  } else if (findings.length === 0) {
     lines.push("No blocking issues, non-blocking issues, or suggestions.");
   } else {
     for (const { key, label: sectionLabel } of RUBBER_DUCK_SEVERITIES) {
