@@ -502,15 +502,10 @@ rl.on("line", (line) => {
             ? message.params.outputSchema
             : null;
         const outputSchemaId = outputSchema && typeof outputSchema.$id === "string" ? outputSchema.$id : null;
-        const outputSchemaProps = outputSchema && outputSchema.properties ? outputSchema.properties : null;
         let payload;
         if (outputSchemaId && outputSchemaId.includes("review-output")) {
           payload = structuredReviewPayload(prompt);
         } else if (outputSchemaId && outputSchemaId.includes("rubber-duck-output")) {
-          payload = rubberDuckPayload(prompt);
-        } else if (outputSchemaProps && outputSchemaProps.verdict) {
-          payload = structuredReviewPayload(prompt);
-        } else if (outputSchemaProps && outputSchemaProps.assessment) {
           payload = rubberDuckPayload(prompt);
         } else {
           const resume =
