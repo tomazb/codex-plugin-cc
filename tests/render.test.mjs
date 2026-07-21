@@ -128,3 +128,70 @@ test("renderRubberDuckResult degrades gracefully on invalid JSON", () => {
   assert.match(output, /Parse error: Unexpected token/);
   assert.match(output, /Raw final message:/);
 });
+
+test("renderRubberDuckResult reports an unexpected shape when required fields are missing", () => {
+  const output = renderRubberDuckResult(
+    {
+      parsed: {
+        assessment: "issues-found",
+        summary: "Missing findings array."
+      },
+      rawOutput: JSON.stringify({
+        assessment: "issues-found",
+        summary: "Missing findings array."
+      }),
+      parseError: null
+    },
+    { label: "Rubber Duck" }
+  );
+
+  assert.match(output, /Codex returned JSON with an unexpected rubber duck shape\./);
+  assert.match(output, /Validation error: Missing array `findings`\./);
+  assert.match(output, /Raw final message:/);
+});
+
+test("renderRubberDuckResult flags a no-issues assessment that still returns findings", () => {
+  const output = renderRubberDuckResult(
+    {
+      parsed: {
+        assessment: "no-issues",
+        summary: "Claims clean but lists a blocker.",
+        findings: [
+          {
+            severity: "blocking",
+            title: "Race condition on cache write",
+            body: "Two writers can clobber each other.",
+            recommendation: "Serialize writes."
+          }
+        ]
+      },
+      rawOutput: "{}",
+      parseError: null
+    },
+    { label: "Rubber Duck" }
+  );
+
+  assert.match(output, /Assessment: no-issues/);
+  assert.match(output, /Note: Codex reported `no-issues` but still returned findings/);
+  assert.match(output, /Blocking issues:/);
+  assert.match(output, /Race condition on cache write/);
+});
+
+test("renderRubberDuckResult flags an issues-found assessment with no findings", () => {
+  const output = renderRubberDuckResult(
+    {
+      parsed: {
+        assessment: "issues-found",
+        summary: "Says issues but lists none.",
+        findings: []
+      },
+      rawOutput: "{}",
+      parseError: null
+    },
+    { label: "Rubber Duck" }
+  );
+
+  assert.match(output, /Assessment: issues-found/);
+  assert.match(output, /Note: Codex reported `issues-found` but returned no findings/);
+  assert.match(output, /No blocking issues, non-blocking issues, or suggestions\./);
+});

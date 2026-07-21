@@ -19,7 +19,8 @@ Core constraint:
 
 Argument handling:
 - Everything that is not `--wait`, `--background`, `--model`, or `--effort` is the plan/design/code/tests text to critique.
-- If the user did not provide any text to critique, articulate the current plan, design, implementation, or tests yourself and pass that as the text so the rubber duck has something concrete to review.
+- If the user did not provide any text to critique, articulate the current plan, design, implementation, or tests yourself and pass that as the text so the rubber duck has something concrete to review. Prefer a stable articulation template that states the goal, the approach, the key assumptions, and the risks you are unsure about.
+- For a long or multiline articulation, especially one containing quotes or code, write it to a temporary file and pass `--prompt-file <path>` instead of packing it into the `$ARGUMENTS` argv string, which is fragile with quoting.
 - Preserve the user's `--model` and `--effort` choices exactly. Leave them unset otherwise.
 - If the user asks for `spark`, the companion maps that to `gpt-5.3-codex-spark`.
 - Do not strip `--wait` or `--background` yourself.
@@ -28,7 +29,10 @@ Argument handling:
 Execution mode rules:
 - If the raw arguments include `--wait`, do not ask. Run in the foreground.
 - If the raw arguments include `--background`, do not ask. Run in a Claude background task.
-- Otherwise, use `AskUserQuestion` exactly once with two options, putting `Wait for results (Recommended)` first:
+- Otherwise, estimate the size of the critique before asking:
+  - Recommend waiting only when the articulation is clearly tiny, roughly a few lines describing one small, well-understood change.
+  - In every other case, including a long articulation, a `--prompt-file` handoff, a proactive mid-implementation critique, or unclear size, recommend background so the critique does not block this session.
+- Then use `AskUserQuestion` exactly once with two options, putting the recommended option first and suffixing its label with `(Recommended)`:
   - `Wait for results`
   - `Run in background`
 

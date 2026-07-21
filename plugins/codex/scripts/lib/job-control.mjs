@@ -31,6 +31,9 @@ function getJobTypeLabel(job) {
   if (job.kind === "adversarial-review") {
     return "adversarial-review";
   }
+  if (job.kind === "rubber-duck") {
+    return "rubber-duck";
+  }
   if (job.jobClass === "review") {
     return "review";
   }

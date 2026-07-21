@@ -369,7 +369,20 @@ export function renderRubberDuckResult(parsedResult, meta = {}) {
 
   const data = parsedResult.parsed;
   const findings = data.findings.map((finding, index) => normalizeRubberDuckFinding(finding, index));
-  const lines = [`# Codex ${label}`, "", `Assessment: ${data.assessment.trim()}`, "", data.summary.trim(), ""];
+  const assessment = data.assessment.trim();
+  const lines = [`# Codex ${label}`, "", `Assessment: ${assessment}`, "", data.summary.trim(), ""];
+
+  if (assessment === "no-issues" && findings.length > 0) {
+    lines.push(
+      "Note: Codex reported `no-issues` but still returned findings below. Treat the findings as the source of truth.",
+      ""
+    );
+  } else if (assessment === "issues-found" && findings.length === 0) {
+    lines.push(
+      "Note: Codex reported `issues-found` but returned no findings. Treat this as a clean critique with no actionable items.",
+      ""
+    );
+  }
 
   if (findings.length === 0) {
     lines.push("No blocking issues, non-blocking issues, or suggestions.");

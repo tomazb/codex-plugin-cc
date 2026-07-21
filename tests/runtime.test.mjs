@@ -473,6 +473,29 @@ test("rubber duck critique reports no issues explicitly when the plan is clean",
   assert.match(result.stdout, /No blocking issues, non-blocking issues, or suggestions\./);
 });
 
+test("rubber duck critique runs read-only and passes model and effort through", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run(
+    "node",
+    [SCRIPT, "rubber-duck", "--model", "gpt-5.4-mini", "--effort", "high", "critique my plan"],
+    {
+      cwd: repo,
+      env: buildEnv(binDir)
+    }
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const state = JSON.parse(fs.readFileSync(path.join(binDir, "fake-codex-state.json"), "utf8"));
+  assert.equal(state.lastThreadStart.sandbox, "read-only");
+  assert.equal(state.lastTurnStart.model, "gpt-5.4-mini");
+  assert.equal(state.lastTurnStart.effort, "high");
+});
+
 test("rubber duck critique requires text to critique", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();

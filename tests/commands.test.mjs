@@ -100,7 +100,9 @@ test("rubber duck command and agent forward to the critique runtime and stay cri
   assert.match(agent, /Do not call `review`, `adversarial-review`, `task`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /Never add `--write`/i);
   assert.match(agent, /Return the stdout of the `codex-companion` command exactly as-is/i);
-  assert.match(agent, /If the Bash call fails or Codex cannot be invoked, return nothing/i);
+  assert.match(agent, /fail loudly/i);
+  assert.match(agent, /Never return nothing/i);
+  assert.match(agent, /codex-rubber-duck-runtime/);
   assert.match(agent, /gpt-5-4-prompting/);
 
   assert.match(readme, /### `\/codex:rubber-duck`/);

@@ -6,7 +6,7 @@ user-invocable: false
 
 # GPT-5.4 Prompting
 
-Use this skill when `codex:codex-rescue` needs to ask Codex or another GPT-5.4-based workflow for help.
+Use this skill when a Codex forwarder subagent (such as `codex:codex-rescue` or `codex:codex-rubber-duck`) needs to shape a request to Codex or another GPT-5.4-based workflow. Shape the prompt for the forwarder's own contract: `codex:codex-rescue` forwards to `task` (write-capable by default), while `codex:codex-rubber-duck` forwards to a read-only `rubber-duck` critique. Do not borrow one forwarder's routing (for example `--write` or `task`) when shaping a prompt for the other.
 
 Prompt Codex like an operator, not a collaborator. Keep prompts compact and block-structured with XML tags. State the task, the output contract, the follow-through defaults, and the small set of extra constraints that matter.
 

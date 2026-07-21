@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "codex",
-      "description": "Use Codex from Claude Code to review code or delegate tasks.",
+      "description": "Use Codex from Claude Code to review code, get a second-opinion rubber duck critique, or delegate tasks.",
       "version": "1.0.6",
       "author": {
         "name": "OpenAI"

@@ -349,6 +349,13 @@ rl.on("line", (line) => {
           throw new Error("thread/start.persistFullHistory requires experimentalApi capability");
         }
         const thread = nextThread(state, message.params.cwd, message.params.ephemeral);
+        state.lastThreadStart = {
+          sandbox: message.params.sandbox ?? null,
+          model: message.params.model ?? null,
+          ephemeral: message.params.ephemeral ?? null,
+          cwd: message.params.cwd ?? null
+        };
+        saveState(state);
         send({ id: message.id, result: { thread: buildThread(thread), model: message.params.model || "gpt-5.4", modelProvider: "openai", serviceTier: null, cwd: thread.cwd, approvalPolicy: "never", sandbox: { type: "readOnly", access: { type: "fullAccess" }, networkAccess: false }, reasoningEffort: null } });
         send({ method: "thread/started", params: { thread: { id: thread.id } } });
         break;
@@ -490,12 +497,18 @@ rl.on("line", (line) => {
 	        saveState(state);
 	        send({ id: message.id, result: { turn: buildTurn(turnId) } });
 
-        const outputSchemaProps =
-          message.params.outputSchema && message.params.outputSchema.properties
-            ? message.params.outputSchema.properties
+        const outputSchema =
+          message.params.outputSchema && typeof message.params.outputSchema === "object"
+            ? message.params.outputSchema
             : null;
+        const outputSchemaId = outputSchema && typeof outputSchema.$id === "string" ? outputSchema.$id : null;
+        const outputSchemaProps = outputSchema && outputSchema.properties ? outputSchema.properties : null;
         let payload;
-        if (outputSchemaProps && outputSchemaProps.verdict) {
+        if (outputSchemaId && outputSchemaId.includes("review-output")) {
+          payload = structuredReviewPayload(prompt);
+        } else if (outputSchemaId && outputSchemaId.includes("rubber-duck-output")) {
+          payload = rubberDuckPayload(prompt);
+        } else if (outputSchemaProps && outputSchemaProps.verdict) {
           payload = structuredReviewPayload(prompt);
         } else if (outputSchemaProps && outputSchemaProps.assessment) {
           payload = rubberDuckPayload(prompt);
