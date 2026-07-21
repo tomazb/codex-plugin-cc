@@ -31,6 +31,7 @@ function runRubberDuckPromptFileExample(source, companionStatus) {
   const binDir = path.join(tempDir, "bin");
   const capturedPath = path.join(tempDir, "captured-path");
   const capturedPrompt = path.join(tempDir, "captured-prompt");
+  const invocationCountPath = path.join(tempDir, "invocation-count");
   fs.mkdirSync(binDir);
 
   writeExecutable(
@@ -48,6 +49,7 @@ printf '%s\\n' "$candidate"
   writeExecutable(
     path.join(binDir, "node"),
     `#!/bin/sh
+printf '1\\n' >> "$INVOCATION_COUNT_PATH"
 prompt_file=
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--prompt-file" ]; then
@@ -64,7 +66,7 @@ exit "$FAKE_NODE_STATUS"
 `
   );
 
-  const result = run("/bin/bash", ["-c", extractFirstBashExample(source)], {
+  const result = run("bash", ["-c", extractFirstBashExample(source)], {
     env: {
       ...process.env,
       PATH: `${binDir}:${process.env.PATH}`,
@@ -72,6 +74,7 @@ exit "$FAKE_NODE_STATUS"
       CLAUDE_PLUGIN_ROOT: "/test/plugin root",
       CAPTURE_PATH: capturedPath,
       CAPTURE_PROMPT: capturedPrompt,
+      INVOCATION_COUNT_PATH: invocationCountPath,
       FAKE_NODE_STATUS: String(companionStatus)
     }
   });
@@ -79,7 +82,9 @@ exit "$FAKE_NODE_STATUS"
   return {
     ...result,
     promptPath: fs.readFileSync(capturedPath, "utf8").trim(),
-    prompt: fs.readFileSync(capturedPrompt, "utf8")
+    prompt: fs.readFileSync(capturedPrompt, "utf8"),
+    invocationCount: fs.readFileSync(invocationCountPath, "utf8").trim().split("\n").length,
+    cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true })
   };
 }
 
@@ -193,7 +198,7 @@ test("rubber duck prompt-file examples use BSD-compatible mktemp templates", () 
   }
 });
 
-test("rubber duck prompt-file examples remove prompts after successful invocations", () => {
+test("rubber duck prompt-file examples remove prompts after successful invocations", (t) => {
   const sources = [
     ["agent", read("agents/codex-rubber-duck.md")],
     ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
@@ -201,13 +206,15 @@ test("rubber duck prompt-file examples remove prompts after successful invocatio
 
   for (const [label, source] of sources) {
     const result = runRubberDuckPromptFileExample(source, 0);
+    t.after(result.cleanup);
     assert.equal(result.status, 0, `${label}: ${result.stderr}`);
+    assert.equal(result.invocationCount, 1, label);
     assert.match(result.prompt, /\.\.\.articulation\.\.\./, label);
     assert.equal(fs.existsSync(result.promptPath), false, label);
   }
 });
 
-test("rubber duck prompt-file examples clean up while preserving companion failures", () => {
+test("rubber duck prompt-file examples clean up while preserving companion failures", (t) => {
   const sources = [
     ["agent", read("agents/codex-rubber-duck.md")],
     ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
@@ -215,8 +222,22 @@ test("rubber duck prompt-file examples clean up while preserving companion failu
 
   for (const [label, source] of sources) {
     const result = runRubberDuckPromptFileExample(source, 23);
+    t.after(result.cleanup);
     assert.equal(result.status, 23, `${label}: ${result.stderr}`);
+    assert.equal(result.invocationCount, 1, label);
     assert.equal(fs.existsSync(result.promptPath), false, label);
+  }
+});
+
+test("rubber duck prompt-file test runner can remove its sandbox", () => {
+  const result = runRubberDuckPromptFileExample(read("agents/codex-rubber-duck.md"), 0);
+  const tempDir = path.dirname(result.promptPath);
+
+  try {
+    result.cleanup();
+    assert.equal(fs.existsSync(tempDir), false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 

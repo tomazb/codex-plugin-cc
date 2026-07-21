@@ -102,9 +102,16 @@ Add these helpers after `read`:
 
 ```js
 function extractFirstBashExample(source) {
-  const match = source.match(/```bash\n([\s\S]*?)\n```/);
-  assert.ok(match, "expected a fenced Bash example");
-  return match[1];
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "```bash");
+  assert.notEqual(start, -1, "expected a fenced Bash example");
+  const end = lines.findIndex((line, index) => index > start && line.trim() === "```");
+  assert.notEqual(end, -1, "expected the Bash fence to be closed");
+  const indentation = lines[start].slice(0, lines[start].indexOf("```"));
+  return lines
+    .slice(start + 1, end)
+    .map((line) => (line.startsWith(indentation) ? line.slice(indentation.length) : line))
+    .join("\n");
 }
 
 function runRubberDuckPromptFileExample(source, companionStatus) {
@@ -112,6 +119,7 @@ function runRubberDuckPromptFileExample(source, companionStatus) {
   const binDir = path.join(tempDir, "bin");
   const capturedPath = path.join(tempDir, "captured-path");
   const capturedPrompt = path.join(tempDir, "captured-prompt");
+  const invocationCountPath = path.join(tempDir, "invocation-count");
   fs.mkdirSync(binDir);
 
   writeExecutable(
@@ -129,6 +137,7 @@ printf '%s\\n' "$candidate"
   writeExecutable(
     path.join(binDir, "node"),
     `#!/bin/sh
+printf '1\\n' >> "$INVOCATION_COUNT_PATH"
 prompt_file=
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--prompt-file" ]; then
@@ -145,7 +154,7 @@ exit "$FAKE_NODE_STATUS"
 `
   );
 
-  const result = run("/bin/bash", ["-c", extractFirstBashExample(source)], {
+  const result = run("bash", ["-c", extractFirstBashExample(source)], {
     env: {
       ...process.env,
       PATH: `${binDir}:${process.env.PATH}`,
@@ -153,6 +162,7 @@ exit "$FAKE_NODE_STATUS"
       CLAUDE_PLUGIN_ROOT: "/test/plugin root",
       CAPTURE_PATH: capturedPath,
       CAPTURE_PROMPT: capturedPrompt,
+      INVOCATION_COUNT_PATH: invocationCountPath,
       FAKE_NODE_STATUS: String(companionStatus)
     }
   });
@@ -160,7 +170,9 @@ exit "$FAKE_NODE_STATUS"
   return {
     ...result,
     promptPath: fs.readFileSync(capturedPath, "utf8").trim(),
-    prompt: fs.readFileSync(capturedPrompt, "utf8")
+    prompt: fs.readFileSync(capturedPrompt, "utf8"),
+    invocationCount: fs.readFileSync(invocationCountPath, "utf8").trim().split("\n").length,
+    cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true })
   };
 }
 ```
@@ -168,7 +180,7 @@ exit "$FAKE_NODE_STATUS"
 - [ ] **Step 2: Write the failing success-cleanup test**
 
 ```js
-test("rubber duck prompt-file examples remove prompts after successful invocations", () => {
+test("rubber duck prompt-file examples remove prompts after successful invocations", (t) => {
   const sources = [
     ["agent", read("agents/codex-rubber-duck.md")],
     ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
@@ -176,7 +188,9 @@ test("rubber duck prompt-file examples remove prompts after successful invocatio
 
   for (const [label, source] of sources) {
     const result = runRubberDuckPromptFileExample(source, 0);
+    t.after(result.cleanup);
     assert.equal(result.status, 0, `${label}: ${result.stderr}`);
+    assert.equal(result.invocationCount, 1, label);
     assert.match(result.prompt, /\.\.\.articulation\.\.\./, label);
     assert.equal(fs.existsSync(result.promptPath), false, label);
   }
@@ -192,7 +206,7 @@ Expected: FAIL because the documented examples leave the prompt files present.
 - [ ] **Step 4: Write the failing failure-cleanup and status test**
 
 ```js
-test("rubber duck prompt-file examples clean up while preserving companion failures", () => {
+test("rubber duck prompt-file examples clean up while preserving companion failures", (t) => {
   const sources = [
     ["agent", read("agents/codex-rubber-duck.md")],
     ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
@@ -200,8 +214,28 @@ test("rubber duck prompt-file examples clean up while preserving companion failu
 
   for (const [label, source] of sources) {
     const result = runRubberDuckPromptFileExample(source, 23);
+    t.after(result.cleanup);
     assert.equal(result.status, 23, `${label}: ${result.stderr}`);
+    assert.equal(result.invocationCount, 1, label);
     assert.equal(fs.existsSync(result.promptPath), false, label);
+  }
+});
+```
+
+The helper's `cleanup` callback is registered with each test's teardown so the per-invocation sandbox, capture files, and stub executables are removed even when an assertion fails.
+
+Add direct coverage for the teardown callback:
+
+```js
+test("rubber duck prompt-file test runner can remove its sandbox", () => {
+  const result = runRubberDuckPromptFileExample(read("agents/codex-rubber-duck.md"), 0);
+  const tempDir = path.dirname(result.promptPath);
+
+  try {
+    result.cleanup();
+    assert.equal(fs.existsSync(tempDir), false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 ```
