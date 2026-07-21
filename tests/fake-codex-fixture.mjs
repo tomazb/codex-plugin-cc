@@ -494,11 +494,18 @@ rl.on("line", (line) => {
           message.params.outputSchema && message.params.outputSchema.properties
             ? message.params.outputSchema.properties
             : null;
-        const payload = outputSchemaProps && outputSchemaProps.verdict
-          ? structuredReviewPayload(prompt)
-          : outputSchemaProps && outputSchemaProps.assessment
-            ? rubberDuckPayload(prompt)
-            : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
+        let payload;
+        if (outputSchemaProps && outputSchemaProps.verdict) {
+          payload = structuredReviewPayload(prompt);
+        } else if (outputSchemaProps && outputSchemaProps.assessment) {
+          payload = rubberDuckPayload(prompt);
+        } else {
+          const resume =
+            thread.name &&
+            thread.name.startsWith("Codex Companion Task") &&
+            prompt.includes("Continue from the current thread state");
+          payload = taskPayload(prompt, resume);
+        }
 
         if (
           BEHAVIOR === "with-subagent" ||
