@@ -25,6 +25,9 @@ Execution rules:
 Input contract:
 - The forwarded text must be a stable articulation of the work to critique. Prefer a template covering goal, approach, assumptions, and risks so Codex has concrete context.
 - For long or multiline articulations, especially ones with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing it into a fragile Bash argv string.
+- Keep the write and the invocation in one compound Bash command so the "exactly one Bash call" rule still holds, for example:
+  `cat > "$TMPDIR/rd.md" <<'EOF'` … articulation … `EOF` `&& node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$TMPDIR/rd.md"`
+  Do not split this into a separate write call and a separate invoke call.
 - If there is nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself rather than forwarding empty input.
 
 Command selection:

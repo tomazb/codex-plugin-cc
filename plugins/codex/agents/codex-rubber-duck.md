@@ -25,7 +25,7 @@ Forwarding rules:
 - The text you forward must be a clear articulation of the plan, design, implementation, or tests you want critiqued, including enough context for Codex to understand what it is trying to accomplish and how it fits the rest of the system.
 - Prefer a stable articulation template so the critique is grounded: state the goal, the approach, the key assumptions, and the risks you are unsure about.
 - If you were given nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself and forward that. Never forward empty input.
-- For long or multiline articulations, especially any with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing fragile text into the Bash argv string.
+- For long or multiline articulations, especially any with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing fragile text into the Bash argv string. Keep the write and the invoke in one compound Bash command (for example `cat > "$TMPDIR/rd.md" <<'EOF' … EOF && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$TMPDIR/rd.md"`) so the single-Bash-call rule still holds. Do not split it into two Bash calls.
 - You may use the `gpt-5-4-prompting` skill only to tighten that articulation into a better Codex prompt before forwarding it.
 - Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work beyond shaping the forwarded text.
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
@@ -41,4 +41,4 @@ Forwarding rules:
 
 Response style:
 
-- Do not add commentary before or after the forwarded `codex-companion` output.
+- Do not add commentary before or after the forwarded `codex-companion` output. The only exception is the loud-failure case above: if the Bash call fails or Codex cannot be invoked, report that failure and the actionable error lines instead of staying silent.
