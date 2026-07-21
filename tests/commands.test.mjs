@@ -109,6 +109,18 @@ test("rubber duck command and agent forward to the critique runtime and stay cri
   assert.match(readme, /`codex:codex-rubber-duck` subagent/i);
 });
 
+test("rubber duck prompt-file examples use BSD-compatible mktemp templates", () => {
+  const sources = [
+    ["agent", read("agents/codex-rubber-duck.md")],
+    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
+  ];
+
+  for (const [label, source] of sources) {
+    assert.match(source, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/, label);
+    assert.doesNotMatch(source, /rd-XXXXXX\.md/, label);
+  }
+});
+
 test("continue is not exposed as a user-facing command", () => {
   const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
   assert.deepEqual(commandFiles, [

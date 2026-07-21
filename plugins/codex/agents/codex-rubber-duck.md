@@ -27,7 +27,7 @@ Forwarding rules:
 - If you were given nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself and forward that. Never forward empty input.
 - For long or multiline articulations, especially any with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing fragile text into the Bash argv string. Keep the write and the invoke in one compound Bash call (not two) so the single-Bash-call rule still holds. Use `mktemp` rather than a fixed path so concurrent critiques do not clobber each other. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
   ```bash
-  rd=$(mktemp "${TMPDIR:-/tmp}/rd-XXXXXX.md")
+  rd=$(mktemp "${TMPDIR:-/tmp}/rd.XXXXXX")
   cat > "$rd" <<'EOF' && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"
   ...articulation...
   EOF

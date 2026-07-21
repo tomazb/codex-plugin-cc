@@ -27,7 +27,7 @@ Input contract:
 - For long or multiline articulations, especially ones with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing it into a fragile Bash argv string.
 - Keep the write and the invocation in one compound Bash call (not two) so the "exactly one Bash call" rule still holds. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
   ```bash
-  rd=$(mktemp "${TMPDIR:-/tmp}/rd-XXXXXX.md")
+  rd=$(mktemp "${TMPDIR:-/tmp}/rd.XXXXXX")
   cat > "$rd" <<'EOF' && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"
   ...articulation...
   EOF
