@@ -262,7 +262,10 @@ function rubberDuckPayload(prompt) {
         severity: "suggestion",
         title: "Add a regression test",
         body: "No test covers the empty-state path.",
-        recommendation: "Add a test for the empty collection case."
+        recommendation: "Add a test for the empty collection case.",
+        file: null,
+        line_start: null,
+        line_end: null
       }
     ]
   });

@@ -29,7 +29,10 @@
           "severity",
           "title",
           "body",
-          "recommendation"
+          "recommendation",
+          "file",
+          "line_start",
+          "line_end"
         ],
         "properties": {
           "severity": {
@@ -53,14 +56,14 @@
             "minLength": 1
           },
           "file": {
-            "type": "string"
+            "type": ["string", "null"]
           },
           "line_start": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "minimum": 1
           },
           "line_end": {
-            "type": "integer",
+            "type": ["integer", "null"],
             "minimum": 1
           }
         }

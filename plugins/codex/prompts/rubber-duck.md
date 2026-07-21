@@ -46,7 +46,7 @@ For each finding, state:
 1. What the issue is.
 2. Its concrete impact on the task.
 3. A specific, actionable change that would address it.
-When you can point at a concrete location, include it as `file` and, when relevant, `line_start`/`line_end`. Plan-level findings that have no code location may omit them.
+When you can point at a concrete location, include it as `file` and, when relevant, `line_start`/`line_end`. Plan-level findings that have no code location must still include these keys, set to `null`, rather than omitting them.
 </finding_bar>
 
 <grounding_rules>

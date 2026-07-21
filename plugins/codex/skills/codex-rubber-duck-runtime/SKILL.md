@@ -25,9 +25,14 @@ Execution rules:
 Input contract:
 - The forwarded text must be a stable articulation of the work to critique. Prefer a template covering goal, approach, assumptions, and risks so Codex has concrete context.
 - For long or multiline articulations, especially ones with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing it into a fragile Bash argv string.
-- Keep the write and the invocation in one compound Bash command so the "exactly one Bash call" rule still holds, for example:
-  `rd=$(mktemp "${TMPDIR:-/tmp}/rd-XXXXXX.md")` `&& cat > "$rd" <<'EOF'` … articulation … `EOF` `&& node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"`
-  Do not split this into a separate write call and a separate invoke call. Use `mktemp` (or `${TMPDIR:-/tmp}/rd-$$.md`) rather than a fixed path so concurrent critiques do not clobber each other and an unset `TMPDIR` still resolves.
+- Keep the write and the invocation in one compound Bash call (not two) so the "exactly one Bash call" rule still holds. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
+  ```bash
+  rd=$(mktemp "${TMPDIR:-/tmp}/rd-XXXXXX.md")
+  cat > "$rd" <<'EOF' && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"
+  ...articulation...
+  EOF
+  ```
+  Do not write `EOF && node ...` on one line: the terminator would be swallowed as heredoc content and the companion would never run. Use `mktemp` rather than a fixed path so concurrent critiques do not clobber each other and an unset `TMPDIR` still resolves.
 - If there is nothing concrete to critique, articulate the current plan, design, implementation, or tests yourself rather than forwarding empty input.
 
 Command selection:
