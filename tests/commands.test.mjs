@@ -4,11 +4,83 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
+import { makeTempDir, run, writeExecutable } from "./helpers.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
 
 function read(relativePath) {
   return fs.readFileSync(path.join(PLUGIN_ROOT, relativePath), "utf8");
+}
+
+function extractFirstBashExample(source) {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "```bash");
+  assert.notEqual(start, -1, "expected a fenced Bash example");
+  const end = lines.findIndex((line, index) => index > start && line.trim() === "```");
+  assert.notEqual(end, -1, "expected the Bash fence to be closed");
+  const indentation = lines[start].slice(0, lines[start].indexOf("```"));
+  return lines
+    .slice(start + 1, end)
+    .map((line) => (line.startsWith(indentation) ? line.slice(indentation.length) : line))
+    .join("\n");
+}
+
+function runRubberDuckPromptFileExample(source, companionStatus) {
+  const tempDir = makeTempDir("rubber-duck-handoff-");
+  const binDir = path.join(tempDir, "bin");
+  const capturedPath = path.join(tempDir, "captured-path");
+  const capturedPrompt = path.join(tempDir, "captured-prompt");
+  fs.mkdirSync(binDir);
+
+  writeExecutable(
+    path.join(binDir, "mktemp"),
+    `#!/bin/sh
+case "$1" in
+  *XXXXXX) ;;
+  *) exit 64 ;;
+esac
+candidate="\${1%XXXXXX}fixed"
+(umask 077 && : > "$candidate") || exit 1
+printf '%s\\n' "$candidate"
+`
+  );
+  writeExecutable(
+    path.join(binDir, "node"),
+    `#!/bin/sh
+prompt_file=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--prompt-file" ]; then
+    shift
+    prompt_file=$1
+    break
+  fi
+  shift
+done
+[ -n "$prompt_file" ] && [ -f "$prompt_file" ] || exit 65
+printf '%s\\n' "$prompt_file" > "$CAPTURE_PATH"
+cat "$prompt_file" > "$CAPTURE_PROMPT"
+exit "$FAKE_NODE_STATUS"
+`
+  );
+
+  const result = run("/bin/bash", ["-c", extractFirstBashExample(source)], {
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+      TMPDIR: tempDir,
+      CLAUDE_PLUGIN_ROOT: "/test/plugin root",
+      CAPTURE_PATH: capturedPath,
+      CAPTURE_PROMPT: capturedPrompt,
+      FAKE_NODE_STATUS: String(companionStatus)
+    }
+  });
+
+  return {
+    ...result,
+    promptPath: fs.readFileSync(capturedPath, "utf8").trim(),
+    prompt: fs.readFileSync(capturedPrompt, "utf8")
+  };
 }
 
 test("review command uses AskUserQuestion and background Bash while staying review-only", () => {
@@ -118,6 +190,33 @@ test("rubber duck prompt-file examples use BSD-compatible mktemp templates", () 
   for (const [label, source] of sources) {
     assert.match(source, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/, label);
     assert.doesNotMatch(source, /rd-XXXXXX\.md/, label);
+  }
+});
+
+test("rubber duck prompt-file examples remove prompts after successful invocations", () => {
+  const sources = [
+    ["agent", read("agents/codex-rubber-duck.md")],
+    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
+  ];
+
+  for (const [label, source] of sources) {
+    const result = runRubberDuckPromptFileExample(source, 0);
+    assert.equal(result.status, 0, `${label}: ${result.stderr}`);
+    assert.match(result.prompt, /\.\.\.articulation\.\.\./, label);
+    assert.equal(fs.existsSync(result.promptPath), false, label);
+  }
+});
+
+test("rubber duck prompt-file examples clean up while preserving companion failures", () => {
+  const sources = [
+    ["agent", read("agents/codex-rubber-duck.md")],
+    ["runtime skill", read("skills/codex-rubber-duck-runtime/SKILL.md")]
+  ];
+
+  for (const [label, source] of sources) {
+    const result = runRubberDuckPromptFileExample(source, 23);
+    assert.equal(result.status, 23, `${label}: ${result.stderr}`);
+    assert.equal(fs.existsSync(result.promptPath), false, label);
   }
 });
 

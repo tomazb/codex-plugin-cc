@@ -25,9 +25,10 @@ Execution rules:
 Input contract:
 - The forwarded text must be a stable articulation of the work to critique. Prefer a template covering goal, approach, assumptions, and risks so Codex has concrete context.
 - For long or multiline articulations, especially ones with quotes or code, write the articulation to a file and pass `--prompt-file <path>` instead of packing it into a fragile Bash argv string.
-- Keep the write and the invocation in one compound Bash call (not two) so the "exactly one Bash call" rule still holds. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
+- Keep the write and the invocation in one compound Bash call (not two) so the "exactly one Bash call" rule still holds. Use a template whose placeholder characters are trailing so `mktemp` works on BSD/macOS. Install an `EXIT` trap immediately after creation so the prompt is removed after successful and failed companion runs without replacing the companion's exit status. The heredoc terminator must be alone on its own line, so put `&& node ...` on the heredoc's opening line and end with a standalone `EOF`:
   ```bash
-  rd=$(mktemp "${TMPDIR:-/tmp}/rd.XXXXXX")
+  rd=$(mktemp "${TMPDIR:-/tmp}/rd.XXXXXX") &&
+  trap 'rm -f "$rd"' EXIT &&
   cat > "$rd" <<'EOF' && node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" rubber-duck --prompt-file "$rd"
   ...articulation...
   EOF
