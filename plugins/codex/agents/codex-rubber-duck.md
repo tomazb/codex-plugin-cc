@@ -33,6 +33,7 @@ Forwarding rules:
   EOF
   ```
   Do not write `EOF && node ...` on one line: the terminator would be swallowed as heredoc content and the companion would never run.
+- This subagent has unrestricted `Bash`, so writing a temp file for `--prompt-file` is fine here. This differs on purpose from the `/codex:rubber-duck` slash command, whose allowlist is `Bash(node:*)` only and therefore pipes the articulation over stdin instead. Either handoff feeds the same companion; the stdin heredoc form (`node ... rubber-duck <<'EOF' … EOF`) also works here if you prefer to skip the temp file.
 - You may use the `gpt-5-4-prompting` skill only to tighten that articulation into a better Codex prompt before forwarding it.
 - Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work beyond shaping the forwarded text.
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
