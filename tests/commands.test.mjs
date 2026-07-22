@@ -4,11 +4,88 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
+import { makeTempDir, run, writeExecutable } from "./helpers.mjs";
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "codex");
 
 function read(relativePath) {
   return fs.readFileSync(path.join(PLUGIN_ROOT, relativePath), "utf8");
+}
+
+function extractFirstBashExample(source) {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "```bash");
+  assert.notEqual(start, -1, "expected a fenced Bash example");
+  const end = lines.findIndex((line, index) => index > start && line.trim() === "```");
+  assert.notEqual(end, -1, "expected the Bash fence to be closed");
+  const indentation = lines[start].slice(0, lines[start].indexOf("```"));
+  return lines
+    .slice(start + 1, end)
+    .map((line) => (line.startsWith(indentation) ? line.slice(indentation.length) : line))
+    .join("\n");
+}
+
+function runRubberDuckPromptFileExample(source, companionStatus) {
+  const tempDir = makeTempDir("rubber-duck-handoff-");
+  const binDir = path.join(tempDir, "bin");
+  const capturedPath = path.join(tempDir, "captured-path");
+  const capturedPrompt = path.join(tempDir, "captured-prompt");
+  const invocationCountPath = path.join(tempDir, "invocation-count");
+  fs.mkdirSync(binDir);
+
+  writeExecutable(
+    path.join(binDir, "mktemp"),
+    `#!/bin/sh
+case "$1" in
+  *XXXXXX) ;;
+  *) exit 64 ;;
+esac
+candidate="\${1%XXXXXX}fixed"
+(umask 077 && : > "$candidate") || exit 1
+printf '%s\\n' "$candidate"
+`
+  );
+  writeExecutable(
+    path.join(binDir, "node"),
+    `#!/bin/sh
+printf '1\\n' >> "$INVOCATION_COUNT_PATH"
+prompt_file=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--prompt-file" ]; then
+    shift
+    prompt_file=$1
+    break
+  fi
+  shift
+done
+[ -n "$prompt_file" ] && [ -f "$prompt_file" ] || exit 65
+printf '%s\\n' "$prompt_file" > "$CAPTURE_PATH"
+cat "$prompt_file" > "$CAPTURE_PROMPT"
+exit "$FAKE_NODE_STATUS"
+`
+  );
+
+  const result = run("bash", ["-c", extractFirstBashExample(source)], {
+    env: {
+      ...process.env,
+      PATH: `${binDir}:${process.env.PATH}`,
+      TMPDIR: tempDir,
+      CLAUDE_PLUGIN_ROOT: "/test/plugin root",
+      CAPTURE_PATH: capturedPath,
+      CAPTURE_PROMPT: capturedPrompt,
+      INVOCATION_COUNT_PATH: invocationCountPath,
+      FAKE_NODE_STATUS: String(companionStatus)
+    }
+  });
+
+  return {
+    ...result,
+    promptPath: fs.readFileSync(capturedPath, "utf8").trim(),
+    prompt: fs.readFileSync(capturedPrompt, "utf8"),
+    invocationCount: fs.readFileSync(invocationCountPath, "utf8").trim().split("\n").length,
+    cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true })
+  };
 }
 
 test("review command uses AskUserQuestion and background Bash while staying review-only", () => {
@@ -70,6 +147,85 @@ test("adversarial review command uses AskUserQuestion and background Bash while 
   assert.match(source, /can still take extra focus text after the flags/i);
 });
 
+test("rubber duck command and agent forward to the critique runtime and stay critique-only", () => {
+  const command = read("commands/rubber-duck.md");
+  const agent = read("agents/codex-rubber-duck.md");
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  assert.match(command, /disable-model-invocation:\s*true/);
+  assert.match(command, /AskUserQuestion/);
+  assert.match(command, /critique-only/i);
+  assert.match(command, /return Codex's output verbatim to the user/i);
+  assert.match(command, /codex-companion\.mjs" rubber-duck "\$ARGUMENTS"/);
+  assert.match(command, /```bash/);
+  assert.match(command, /```typescript/);
+  assert.match(command, /run_in_background:\s*true/);
+  assert.match(command, /description:\s*"Codex rubber duck"/);
+  assert.match(command, /Do not call `BashOutput`/);
+  assert.match(command, /Do not fix any issues mentioned in the critique output/i);
+  assert.match(command, /\(Recommended\)/);
+  assert.match(command, /reviews proposed changes, it does not make file changes itself/i);
+
+  assert.match(agent, /name: codex-rubber-duck/);
+  assert.match(agent, /thin forwarding wrapper/i);
+  assert.match(agent, /constructive critic/i);
+  assert.match(agent, /different model than the one driving the main session/i);
+  assert.match(agent, /blocking, non-blocking, and suggestions/i);
+  assert.match(agent, /Use exactly one `Bash` call/i);
+  assert.match(agent, /codex-companion\.mjs" rubber-duck/);
+  assert.match(agent, /after planning a non-trivial change but before implementing it/i);
+  assert.match(agent, /Do not call `review`, `adversarial-review`, `task`, `status`, `result`, or `cancel`/i);
+  assert.match(agent, /Never add `--write`/i);
+  assert.match(agent, /Return the stdout of the `codex-companion` command exactly as-is/i);
+  assert.match(agent, /fail loudly/i);
+  assert.match(agent, /Never return nothing/i);
+  assert.match(agent, /codex-rubber-duck-runtime/);
+  assert.match(agent, /gpt-5-4-prompting/);
+
+  assert.match(readme, /### `\/codex:rubber-duck`/);
+  assert.match(readme, /`codex:codex-rubber-duck` subagent/i);
+});
+
+test("rubber duck prompt-file examples use BSD-compatible mktemp templates", () => {
+  const skill = read("skills/codex-rubber-duck-runtime/SKILL.md");
+  const agent = read("agents/codex-rubber-duck.md");
+
+  assert.match(skill, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/);
+  assert.doesNotMatch(skill, /rd-XXXXXX\.md/);
+  assert.doesNotMatch(agent, /mktemp "\$\{TMPDIR:-\/tmp\}\/rd\.XXXXXX"/);
+  assert.match(agent, /codex-rubber-duck-runtime/);
+  assert.match(agent, /`--prompt-file` handoff/);
+});
+
+test("rubber duck prompt-file examples remove prompts after successful invocations", (t) => {
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 0);
+  t.after(result.cleanup);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.invocationCount, 1);
+  assert.match(result.prompt, /\.\.\.articulation\.\.\./);
+  assert.equal(fs.existsSync(result.promptPath), false);
+});
+
+test("rubber duck prompt-file examples clean up while preserving companion failures", (t) => {
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 23);
+  t.after(result.cleanup);
+  assert.equal(result.status, 23, result.stderr);
+  assert.equal(result.invocationCount, 1);
+  assert.equal(fs.existsSync(result.promptPath), false);
+});
+
+test("rubber duck prompt-file test runner can remove its sandbox", () => {
+  const result = runRubberDuckPromptFileExample(read("skills/codex-rubber-duck-runtime/SKILL.md"), 0);
+  const tempDir = path.dirname(result.promptPath);
+
+  try {
+    result.cleanup();
+    assert.equal(fs.existsSync(tempDir), false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("continue is not exposed as a user-facing command", () => {
   const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
   assert.deepEqual(commandFiles, [
@@ -78,6 +234,7 @@ test("continue is not exposed as a user-facing command", () => {
     "rescue.md",
     "result.md",
     "review.md",
+    "rubber-duck.md",
     "setup.md",
     "status.md",
     "transfer.md"

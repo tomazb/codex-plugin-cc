@@ -28,22 +28,23 @@ function getJobTypeLabel(job) {
   if (typeof job.kindLabel === "string" && job.kindLabel) {
     return job.kindLabel;
   }
-  if (job.kind === "adversarial-review") {
-    return "adversarial-review";
+
+  const kindLabels = {
+    "adversarial-review": "adversarial-review",
+    "rubber-duck": "rubber-duck",
+    review: "review",
+    task: "rescue"
+  };
+  if (kindLabels[job.kind]) {
+    return kindLabels[job.kind];
   }
-  if (job.jobClass === "review") {
-    return "review";
-  }
-  if (job.jobClass === "task") {
-    return "rescue";
-  }
-  if (job.kind === "review") {
-    return "review";
-  }
-  if (job.kind === "task") {
-    return "rescue";
-  }
-  return "job";
+
+  const classLabels = {
+    review: "review",
+    critique: "rubber-duck",
+    task: "rescue"
+  };
+  return classLabels[job.jobClass] ?? "job";
 }
 
 function stripLogPrefix(line) {
@@ -137,7 +138,7 @@ function inferLegacyJobPhase(job, progressPreview = []) {
     if (line.startsWith("running command:")) {
       return looksLikeVerificationCommand(line)
         ? "verifying"
-        : job.jobClass === "review"
+        : job.jobClass === "review" || job.jobClass === "critique"
           ? "reviewing"
           : "investigating";
     }
@@ -155,7 +156,7 @@ function inferLegacyJobPhase(job, progressPreview = []) {
     }
   }
 
-  return job.jobClass === "review" ? "reviewing" : "running";
+  return job.jobClass === "review" || job.jobClass === "critique" ? "reviewing" : "running";
 }
 
 export function enrichJob(job, options = {}) {

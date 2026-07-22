@@ -6,7 +6,7 @@ user-invocable: false
 
 # GPT-5.4 Prompting
 
-Use this skill when `codex:codex-rescue` needs to ask Codex or another GPT-5.4-based workflow for help.
+Use this skill when a Codex forwarder subagent (such as `codex:codex-rescue` or `codex:codex-rubber-duck`) needs to shape a request to Codex or another GPT-5.4-based workflow. Shape the prompt for the forwarder's own contract: `codex:codex-rescue` forwards to `task` (write-capable by default), while `codex:codex-rubber-duck` forwards to a read-only `rubber-duck` critique. Do not borrow one forwarder's routing (for example `--write` or `task`) when shaping a prompt for the other.
 
 Prompt Codex like an operator, not a collaborator. Keep prompts compact and block-structured with XML tags. State the task, the output contract, the follow-through defaults, and the small set of extra constraints that matter.
 
@@ -33,6 +33,7 @@ When to add blocks:
 How to choose prompt shape:
 - Use built-in `review` or `adversarial-review` commands when the job is reviewing local git changes. Those prompts already carry the review contract.
 - Use `task` when the task is diagnosis, planning, research, or implementation and you need to control the prompt more directly.
+- Use `rubber-duck` when the job is a read-only second opinion on a plan, design, implementation, or tests. Shape the articulation for critique; never borrow `task` routing or `--write` for it.
 - Use `task --resume-last` for follow-up instructions on the same Codex thread. Send only the delta instruction instead of restating the whole prompt unless the direction changed materially.
 
 Working rules:

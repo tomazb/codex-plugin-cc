@@ -232,6 +232,45 @@ function structuredReviewPayload(prompt) {
   });
 }
 
+function rubberDuckPayload(prompt) {
+  if (BEHAVIOR === "invalid-json") {
+    return "not valid json";
+  }
+
+  if (BEHAVIOR === "rubber-duck-clean" || prompt.includes("RUBBER_DUCK_CLEAN")) {
+    return JSON.stringify({
+      assessment: "no-issues",
+      summary: "The plan holds up; no blocking issues surfaced.",
+      findings: []
+    });
+  }
+
+  return JSON.stringify({
+    assessment: "issues-found",
+    summary: "The plan misses an empty-state failure mode.",
+    findings: [
+      {
+        severity: "blocking",
+        title: "Unhandled empty collection",
+        body: "The proposed indexing assumes the collection is never empty.",
+        recommendation: "Guard against empty input before indexing.",
+        file: "src/app.js",
+        line_start: 4,
+        line_end: 6
+      },
+      {
+        severity: "suggestion",
+        title: "Add a regression test",
+        body: "No test covers the empty-state path.",
+        recommendation: "Add a test for the empty collection case.",
+        file: null,
+        line_start: null,
+        line_end: null
+      }
+    ]
+  });
+}
+
 function taskPayload(prompt, resume) {
   if (prompt.includes("<task>") && prompt.includes("Only review the work from the previous Claude turn.")) {
     if (BEHAVIOR === "adversarial-clean") {
@@ -313,6 +352,13 @@ rl.on("line", (line) => {
           throw new Error("thread/start.persistFullHistory requires experimentalApi capability");
         }
         const thread = nextThread(state, message.params.cwd, message.params.ephemeral);
+        state.lastThreadStart = {
+          sandbox: message.params.sandbox ?? null,
+          model: message.params.model ?? null,
+          ephemeral: message.params.ephemeral ?? null,
+          cwd: message.params.cwd ?? null
+        };
+        saveState(state);
         send({ id: message.id, result: { thread: buildThread(thread), model: message.params.model || "gpt-5.4", modelProvider: "openai", serviceTier: null, cwd: thread.cwd, approvalPolicy: "never", sandbox: { type: "readOnly", access: { type: "fullAccess" }, networkAccess: false }, reasoningEffort: null } });
         send({ method: "thread/started", params: { thread: { id: thread.id } } });
         break;
@@ -454,9 +500,23 @@ rl.on("line", (line) => {
 	        saveState(state);
 	        send({ id: message.id, result: { turn: buildTurn(turnId) } });
 
-        const payload = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
-          ? structuredReviewPayload(prompt)
-          : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
+        const outputSchema =
+          message.params.outputSchema && typeof message.params.outputSchema === "object"
+            ? message.params.outputSchema
+            : null;
+        const outputSchemaId = outputSchema && typeof outputSchema.$id === "string" ? outputSchema.$id : null;
+        let payload;
+        if (outputSchemaId && outputSchemaId.includes("review-output")) {
+          payload = structuredReviewPayload(prompt);
+        } else if (outputSchemaId && outputSchemaId.includes("rubber-duck-output")) {
+          payload = rubberDuckPayload(prompt);
+        } else {
+          const resume =
+            thread.name &&
+            thread.name.startsWith("Codex Companion Task") &&
+            prompt.includes("Continue from the current thread state");
+          payload = taskPayload(prompt, resume);
+        }
 
         if (
           BEHAVIOR === "with-subagent" ||
